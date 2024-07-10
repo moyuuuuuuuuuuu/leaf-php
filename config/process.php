@@ -40,12 +40,11 @@ return [
         ]
     ],
     'leafMaster' => [
-        'handler'     => process\LeafMaster::class,
+        'handler'     => process\LeafMasterManage::class,
         'count'       => 1,
         'reloadable'  => true,
-        'listen'      => 'text://0.0.0.0:9001',
         'constructor' => [
-            'addressList' => base_path() . 'config/leaf_listener.php',
+            'config' => base_path() . 'config/leaf_listener.json',
         ],
     ]
 
