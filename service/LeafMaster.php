@@ -40,15 +40,12 @@ class LeafMaster extends Worker
     public function onWorkerStart(Worker $worker)
     {
         //创建leafWorker
-        foreach ($this->config['worker'] as $key => $config) {
-            $leafWorker                = new LeafWorker("text://{$config['listen']}", $config, $this->config['master']['listen']);
-            $leafWorker->onMessage     = [$leafWorker, 'onMessage'];
-            $leafWorker->onWorkerStart = [$leafWorker, 'onWorkerStart'];
-//            $leafWorker->onError        = [$leafWorker, 'onError'];
+        foreach ($this->getConfig('worker') as $key => $config) {
+            $leafWorker                 = new LeafWorker("text://{$config['listen']}", $config, $this->getConfig('master.listen'), $this);
+            $leafWorker->onMessage      = [$leafWorker, 'onMessage'];
+            $leafWorker->onWorkerStart  = [$leafWorker, 'onWorkerStart'];
             $leafWorker->onWorkerReload = [$leafWorker, 'onWorkerReload'];
-            $leafWorker->onClose        = [$leafWorker, 'onClose'];
-//            $leafWorker->onConnect      = [$leafWorker, 'onConnnect'];
-            $leafWorker->count = 1;
+            $leafWorker->count          = 1;
             $leafWorker->run();
         }
     }
@@ -56,6 +53,7 @@ class LeafMaster extends Worker
 
     public function onMessage($connection, $data)
     {
+        echo "LeafMaster".$data . PHP_EOL;
         $data = json_decode($data, true);
         if (is_string($data)) {
             $data = json_decode($data, true);
@@ -66,8 +64,8 @@ class LeafMaster extends Worker
         if ($cmd == 'started') {
             $workerId = $data['workerId'];
             $this->addWorker($workerId, $data);
-            $timerId = Timer::add(1, function () use ($data, &$timerId) {
-                if (time() - ($this->listenerList[$data['workerId']]['lastPingTime'] ?? 0) > ($this->config['timeOut'] ?? 60)) {
+            $timerId = Timer::add(10, function () use ($data, &$timerId) {
+                if (time() - ($this->listenerList[$data['workerId']]['lastPingTime'] ?? 0) > ($this->getConfig('timeOut') ?? 60)) {
                     unset($this->listenerList[$data['workerId']]);
                     Timer::del($timerId);
                     echo 'DeadLeafWorker:' . $data['workerId'] . PHP_EOL;
@@ -85,18 +83,20 @@ class LeafMaster extends Worker
             $this->maxNumber = max($this->maxNumber, $data['number']);
         } elseif ($cmd == 'updateRange') {
             $nextMin = $this->getNextMin();
-            $listen  = $this->listenerList[$data['workerId']]['listen'];
-            $master  = stream_socket_client('tcp://' . $listen);
-            $data    = [
+            if (!isset($this->listenerList[$data['workerId']])) {
+                return;
+            }
+            $listen = $this->listenerList[$data['workerId']]['listen'];
+            $master = stream_socket_client('tcp://' . $listen);
+            $data   = [
                 'cmd'  => 'updateRange',
                 'data' => [
                     'min' => $nextMin,
-                    'max' => $nextMin + $this->config['master']['step'],
+                    'max' => $nextMin + ($this->getConfig('step', 1000)) - 1,
                 ]
             ];
             fwrite($master, json_encode($data) . "\n");
             fclose($master);
-
         }
     }
 
@@ -105,16 +105,29 @@ class LeafMaster extends Worker
         $worker->reload();
     }
 
-    public function getConfig()
+    /**
+     * @param $key
+     * @return array|string
+     */
+    public function getConfig($key = '*', $defaultValue = '')
     {
-        return $this->config;
+        if (strstr($key, '.')) {
+            list($firstName, $secondName) = explode('.', $key);
+            return $this->config[$firstName][$secondName] ?? $defaultValue;
+        } else if ($key != '*') {
+            return $this->config[$key] ?? $defaultValue;
+        } else {
+            return $this->config;
+        }
     }
 
     protected function getNextMin()
     {
-        $i = $this->maxNumber;
-        $a = str_pad(1, strlen($i), 0);
-        return (int)str_pad(ceil($i / $a), strlen($i), 0) * (count($this->listenerList) - 1) * $this->config['master']['step'] + 1;
+        $i                 = $this->maxNumber;
+        $bucketSpaceNumber = count($this->listenerList) - 1 ?? 1;
+        $bucketStep        = $this->getConfig('step');
+        $num               = str_pad(1, strlen($i), 0);
+        return (int)ceil($i / $num) * $bucketSpaceNumber * $bucketStep + 1;
     }
 
 

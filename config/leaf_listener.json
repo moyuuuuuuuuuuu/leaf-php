@@ -1,21 +1,35 @@
 {
   "master": {
     "currentId": 0,
-    "step": 1000,
     "listen": "127.0.0.1:8001",
     "token": "leaf"
   },
+  "step": 100,
+  "timeOut": 60,
+  "fill": false,
   "worker": [
     {
       "listen": "127.0.0.1:9002",
       "min": 1,
-      "max": 1000,
+      "max": 100,
       "step": 1
     },
     {
       "listen": "127.0.0.1:9003",
-      "min": 1001,
-      "max": 2000,
+      "min": 201,
+      "max": 300,
+      "step": 1
+    },
+    {
+      "listen": "127.0.0.1:9004",
+      "min": 401,
+      "max": 500,
+      "step": 1
+    },
+    {
+      "listen": "127.0.0.1:9005",
+      "min": 501,
+      "max": 600,
       "step": 1
     }
   ]
