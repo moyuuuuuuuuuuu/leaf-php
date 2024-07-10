@@ -2,6 +2,8 @@
 
 namespace service;
 
+use support\Log;
+use support\Redis;
 use Webman\Exception\NotFoundException;
 use Workerman\Connection\TcpConnection;
 use Workerman\Timer;
@@ -48,12 +50,12 @@ class LeafMaster extends Worker
             $leafWorker->count          = 1;
             $leafWorker->run();
         }
+        //从redis获取maxNumber 并更新各个桶的取号范围
     }
 
 
     public function onMessage($connection, $data)
     {
-        echo "LeafMaster".$data . PHP_EOL;
         $data = json_decode($data, true);
         if (is_string($data)) {
             $data = json_decode($data, true);
@@ -62,13 +64,12 @@ class LeafMaster extends Worker
         $data = $data['data'] ?? [];
 
         if ($cmd == 'started') {
-            $workerId = $data['workerId'];
-            $this->addWorker($workerId, $data);
+            $this->addWorker($data['workerId'], $data);
             $timerId = Timer::add(10, function () use ($data, &$timerId) {
-                if (time() - ($this->listenerList[$data['workerId']]['lastPingTime'] ?? 0) > ($this->getConfig('timeOut') ?? 60)) {
+                if (time() - ($this->listenerList[$data['workerId']]['lastPingTime'] ?? 0) > $this->getConfig('timeOut', 60)) {
                     unset($this->listenerList[$data['workerId']]);
                     Timer::del($timerId);
-                    echo 'DeadLeafWorker:' . $data['workerId'] . PHP_EOL;
+                    Log::log('INFO', 'DeadLeafWorker:' . $data['workerId'] . ',listen:' . $data['listen'] . PHP_EOL);
                     return;
                 }
                 $master = stream_socket_client('tcp://' . $data['listen']);
@@ -77,10 +78,10 @@ class LeafMaster extends Worker
                 ];
                 fwrite($master, json_encode($data) . "\n");
                 fclose($master);
-
             });
         } else if ($cmd == 'numberOff') {
             $this->maxNumber = max($this->maxNumber, $data['number']);
+//            Redis::set('leaf:maxNumber', $this->maxNumber);
         } elseif ($cmd == 'updateRange') {
             $nextMin = $this->getNextMin();
             if (!isset($this->listenerList[$data['workerId']])) {
@@ -121,9 +122,9 @@ class LeafMaster extends Worker
         }
     }
 
-    protected function getNextMin()
+    protected function getNextMin($currentMaxNumber = null)
     {
-        $i                 = $this->maxNumber;
+        $i                 = $currentMaxNumber ?? $this->maxNumber;
         $bucketSpaceNumber = count($this->listenerList) - 1 ?? 1;
         $bucketStep        = $this->getConfig('step');
         $num               = str_pad(1, strlen($i), 0);

@@ -29,7 +29,6 @@ class LeafWorker extends Worker
     {
         parent::__construct($socket_name, $context_option);
         $this->workUinId = rand(1000, 9999);
-        echo $this->workUinId . PHP_EOL;
         if (!$config) {
             throw new NotFoundException('Leaf config file format error');
         }
@@ -64,7 +63,6 @@ class LeafWorker extends Worker
 
     public function onMessage(TcpConnection $connection, $data)
     {
-        echo "LeafWorker" . $data . PHP_EOL;
         $data = json_decode($data, true);
         if (is_string($data)) {
             $data = json_decode($data, true);
