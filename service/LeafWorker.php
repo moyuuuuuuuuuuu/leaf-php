@@ -15,10 +15,16 @@ class LeafWorker extends Worker
     public $onWorkerReload = [self::class, 'onWorkerReload'];
     public $onClose        = [self::class, 'onClose'];
 
-    protected static $masterListen = '';
-    protected static $isMaster     = false;
-    protected static $config       = null;
-    protected static $currentId    = 0;
+    protected $masterListen = '';
+    protected $isMaster     = false;
+    protected $config       = null;
+    protected $currentId    = 0;
+    /**
+     * 是否可以发号
+     * 当发号到最大值时，请求master更新取号范围期间不可发号
+     * @var bool
+     */
+    protected $canGiveOffer = true;
 
     public function __construct($socket_name = '', array $config = [], string $master = '', array $context_option = array())
     {
@@ -29,56 +35,93 @@ class LeafWorker extends Worker
         if (!$master) {
             throw new NotFoundException('Leaf master listen not found');
         }
-        self::$masterListen = $master;
-        self::$config       = $config;
-        self::$currentId    = $config['min'];
+        $this->masterListen = $master;
+        $this->config       = $config;
+        $this->currentId    = $config['min'];
     }
 
-    static function setMaster(string $listen)
+    public function setMaster(string $listen)
     {
-        self::$masterListen = $listen;
+        $this->masterListen = $listen;
     }
 
-    static function onWorkerStart(Worker $worker)
+    public function onWorkerStart(Worker $worker)
     {
-        $master = stream_socket_client('tcp://' . self::$masterListen);
+        $master = stream_socket_client('tcp://' . $this->masterListen);
         $data   = [
             'cmd'  => 'started',
             'data' => [
-                'workerId' => $worker->id,
-                'listen'   => self::$config['listen']
+                'workerId'     => $worker->id,
+                'listen'       => $this->config['listen'],
+                'pidFile'      => $worker::$pidFile,
+                'lastPingTime' => time()
             ]
         ];
         fwrite($master, json_encode($data) . "\n");
-
     }
 
-    static function onMessage($connection, $data)
+    public function onMessage(TcpConnection $connection, $data)
     {
         $data = json_decode($data, true);
         if (is_string($data)) {
             $data = json_decode($data, true);
         }
         $cmd  = $data['cmd'];
-        $data = $data['data'];
+        $data = $data['data'] ?? [];
         if ($cmd == 'ping') {
-            $data['lastPingTime'] = time();
-            $master               = stream_socket_client('tcp://' . self::$masterListen);
-            $data                 = ['cmd' => 'pong', 'data' => $data];
+            $data   = [
+                'workerId'     => $this->id,
+                'listen'       => $this->config['listen'],
+                'lastPingTime' => time(),
+            ];
+            $master = stream_socket_client('tcp://' . $this->masterListen);
+            $data   = ['cmd' => 'pong', 'data' => $data];
             fwrite($master, json_encode($data) . "\n");
+            fclose($master);
+
+        } else if ($cmd == 'offer') {
+            //发号
+            if (!$this->canGiveOffer) {
+                $connection->send(json_encode(['status' => 'wait', 'no' => null]));
+                return;
+            }
+            //取号
+            $connection->send(json_encode(['status' => 'success', 'no' => $this->currentId]));
+
+            $master = stream_socket_client('tcp://' . $this->masterListen);
+            $data   = ['cmd' => 'numberOff', 'data' => ['workerId' => $this->id, 'number' => $this->currentId]];
+            fwrite($master, json_encode($data) . "\n");
+            fclose($master);
+
+            if ($this->currentId + 1 <= $this->config['max']) {
+                $this->currentId++;
+            } else {
+                $this->canGiveOffer = false;
+                $master             = stream_socket_client('tcp://' . $this->masterListen);
+                $data               = ['cmd' => 'updateRange', 'data' => ['workerId' => $this->id]];
+                fwrite($master, json_encode($data) . "\n");
+                fclose($master);
+
+            }
+
+        } else if ($cmd == 'updateRange') {
+            //更新取号范围
+            $this->currentId    = $data['min'];
+            $this->canGiveOffer = true;
+            $this->config       = array_merge($this->config, $data);
         }
     }
 
-    static function onClose(TcpConnection $connection)
+    public function onClose(TcpConnection $connection)
     {
     }
 
-    static function onError(TcpConnection $connection, $code, $msg)
+    public function onError(TcpConnection $connection, $code, $msg)
     {
 
     }
 
-    static function onWorkerReload(self $worker)
+    public function onWorkerReload(self $worker)
     {
         $worker->reload();
     }

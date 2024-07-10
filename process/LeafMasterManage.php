@@ -4,6 +4,7 @@ namespace process;
 
 use service\LeafMaster;
 use Webman\Exception\NotFoundException;
+use Workerman\Timer;
 use Workerman\Worker;
 
 class LeafMasterManage
@@ -27,7 +28,13 @@ class LeafMasterManage
 
     public function onWorkerStart(Worker $worker)
     {
-        $this->master        = new LeafMaster("text://{$this->config['master']['listen']}", $this->config);
+        $this->master                 = new LeafMaster("text://{$this->config['master']['listen']}", $this->config);
+        $this->master->onMessage      = [$this->master, 'onMessage'];
+        $this->master->onWorkerStart  = [$this->master, 'onWorkerStart'];
+//        $this->master->onError        = [$this->master, 'onError'];
+        $this->master->onWorkerReload = [$this->master, 'onWorkerReload'];
+//        $this->master->onClose        = [$this->master, 'onClose'];
+//        $this->master->onConnect      = [$this->master, 'onConnnect'];
         $this->master->count = 1;
         $this->master->run();
     }

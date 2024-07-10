@@ -8,21 +8,14 @@ class IndexController
 {
     public function index(Request $request)
     {
-        static $readme;
-        if (!$readme) {
-            $readme = file_get_contents(base_path('README.md'));
-        }
-        return $readme;
-    }
+        var_dump('tcp://127.0.0.1:900' . rand(2, 3));
+        $master = stream_socket_client('tcp://127.0.0.1:900' . rand(2, 3));
+        $data   = ['cmd' => 'offer'];
+        fwrite($master, json_encode($data) . "\n");
+        $response = fread($master, 1024);
+        fclose($master);
+        return json(json_decode($response));
 
-    public function view(Request $request)
-    {
-        return view('index/view', ['name' => 'webman']);
-    }
-
-    public function json(Request $request)
-    {
-        return json(['code' => 0, 'msg' => 'ok']);
     }
 
 }

@@ -9,21 +9,21 @@ use Workerman\Worker;
 
 class LeafMaster extends Worker
 {
-    public           $onMessage      = [self::class, 'onMessage'];
-    public           $onWorkerStart  = [self::class, 'onWorkerStart'];
-    public           $onError        = [self::class, 'onError'];
-    public           $onWorkerReload = [self::class, 'onWorkerReload'];
-    public           $onClose        = [self::class, 'onClose'];
-    public           $onConnect      = [self::class, 'onConnnect'];
-    protected static $listenerList   = [];
-    protected static $workerList     = [];
 
-    protected static $config   = [];
-    protected        $isMaster = true;
+    protected $listenerList = [];
+    protected $workerList   = [];
 
-    static function addWorker($listen)
+    protected $config   = [];
+    protected $isMaster = true;
+    /**
+     * 当前最大号
+     * @var int
+     */
+    protected $maxNumber = 0;
+
+    public function addWorker($workerId, $data)
     {
-        self::$listenerList[] = $listen;
+        $this->listenerList[$workerId] = $data;
     }
 
 
@@ -32,80 +32,89 @@ class LeafMaster extends Worker
         if (!$config) {
             throw new NotFoundException('Leaf config file format error');
         }
-        self::$config = $config;
+        $this->config = $config;
         parent::__construct($socket_name, $context_option);
 
     }
 
-    static function onWorkerStart(Worker $worker)
+    public function onWorkerStart(Worker $worker)
     {
         //创建leafWorker
-        foreach (self::$config['worker'] as $key => $config) {
-            $leafWorker        = new LeafWorker("text://{$config['listen']}", $config, self::$config['master']['listen']);
+        foreach ($this->config['worker'] as $key => $config) {
+            $leafWorker                = new LeafWorker("text://{$config['listen']}", $config, $this->config['master']['listen']);
+            $leafWorker->onMessage     = [$leafWorker, 'onMessage'];
+            $leafWorker->onWorkerStart = [$leafWorker, 'onWorkerStart'];
+//            $leafWorker->onError        = [$leafWorker, 'onError'];
+            $leafWorker->onWorkerReload = [$leafWorker, 'onWorkerReload'];
+            $leafWorker->onClose        = [$leafWorker, 'onClose'];
+//            $leafWorker->onConnect      = [$leafWorker, 'onConnnect'];
             $leafWorker->count = 1;
             $leafWorker->run();
-            self::addWorker($config['listen']);
-            $connection = stream_socket_client('tcp://' . $config['listen']);
-            $data       = json_encode([
-                'cmd'  => 'ping',
-                'data' => [
-                    'listen' => $config['listen'],
-                ]
-            ]);
-            fwrite($connection, json_encode($data) . "\n");
         }
     }
 
-    static function onConnnect(TcpConnection $connection)
-    {
-    }
 
-
-    static function onMessage($connection, $data)
+    public function onMessage($connection, $data)
     {
         $data = json_decode($data, true);
         if (is_string($data)) {
             $data = json_decode($data, true);
         }
         $cmd  = $data['cmd'];
-        $data = $data['data'];
-        if ($cmd == 'pong') {
-            $listen       = $data['listen'];
-            $lastPingTime = $data['lastPingTime'] ?? null;
-            if (in_array($listen, self::$listenerList)) {
-                $timerId = Timer::add(1, function () use (&$listen, $lastPingTime, &$timerId) {
-                    if (!$lastPingTime || time() - $lastPingTime < 10) {
-                        array_slice(self::$listenerList, array_search($listen, self::$listenerList), 1);
-                        Timer::del($timerId);
-                        return;
-                    }
-                    $connection = stream_socket_client('tcp://' . $listen);
-                    $data       = ['cmd' => 'ping', 'data' => ['listen' => $listen]];
-                    fwrite($connection, json_encode($data) . "\n");
-                });
-            }
+        $data = $data['data'] ?? [];
+
+        if ($cmd == 'started') {
+            $workerId = $data['workerId'];
+            $this->addWorker($workerId, $data);
+            $timerId = Timer::add(1, function () use ($data, &$timerId) {
+                if (time() - ($this->listenerList[$data['workerId']]['lastPingTime'] ?? 0) > ($this->config['timeOut'] ?? 60)) {
+                    unset($this->listenerList[$data['workerId']]);
+                    Timer::del($timerId);
+                    echo 'DeadLeafWorker:' . $data['workerId'] . PHP_EOL;
+                    return;
+                }
+                $master = stream_socket_client('tcp://' . $data['listen']);
+                $data   = [
+                    'cmd' => 'ping',
+                ];
+                fwrite($master, json_encode($data) . "\n");
+                fclose($master);
+
+            });
+        } else if ($cmd == 'numberOff') {
+            $this->maxNumber = max($this->maxNumber, $data['number']);
+        } elseif ($cmd == 'updateRange') {
+            $nextMin = $this->getNextMin();
+            $listen  = $this->listenerList[$data['workerId']]['listen'];
+            $master  = stream_socket_client('tcp://' . $listen);
+            $data    = [
+                'cmd'  => 'updateRange',
+                'data' => [
+                    'min' => $nextMin,
+                    'max' => $nextMin + $this->config['master']['step'],
+                ]
+            ];
+            fwrite($master, json_encode($data) . "\n");
+            fclose($master);
+
         }
-
     }
 
-    static function onClose(TcpConnection $connection)
-    {
-
-    }
-
-    static function onError(TcpConnection $connection, $code, $msg)
-    {
-
-    }
-
-    static function onWorkerReload(self $worker)
+    public function onWorkerReload(self $worker)
     {
         $worker->reload();
     }
 
-    static function getConfig()
+    public function getConfig()
     {
-        return self::$config;
+        return $this->config;
+    }
+
+    protected function getNextMin()
+    {
+        $i = $this->maxNumber;
+        $a = str_pad(1, strlen($i), 0);
+        return (int)str_pad(ceil($i / $a), strlen($i), 0) * (count($this->listenerList) - 1) * $this->config['master']['step'] + 1;
     }
 
 

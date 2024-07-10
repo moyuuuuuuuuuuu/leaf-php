@@ -14,7 +14,7 @@
 
 use Webman\Route;
 
-
+Route::any('offer', ['app\controller\IndexController', 'index']);
 
 
 
