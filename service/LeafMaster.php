@@ -3,17 +3,15 @@
 namespace service;
 
 use support\Log;
-use support\Redis;
 use Webman\Exception\NotFoundException;
-use Workerman\Connection\TcpConnection;
+use Workerman\Connection\AsyncTcpConnection;
 use Workerman\Timer;
 use Workerman\Worker;
 
-class LeafMaster extends Worker
+class LeafMaster extends BaseLeaf
 {
 
     protected $listenerList = [];
-    protected $workerList   = [];
 
     protected $config   = [];
     protected $isMaster = true;
@@ -44,6 +42,8 @@ class LeafMaster extends Worker
         //创建leafWorker
         foreach ($this->getConfig('worker') as $key => $config) {
             $leafWorker                 = new LeafWorker("text://{$config['listen']}", $config, $this->getConfig('master.listen'), $this);
+            $leafWorker->reusePort      = true;
+            $leafWorker->count          = 4;
             $leafWorker->onMessage      = [$leafWorker, 'onMessage'];
             $leafWorker->onWorkerStart  = [$leafWorker, 'onWorkerStart'];
             $leafWorker->onWorkerReload = [$leafWorker, 'onWorkerReload'];
@@ -56,13 +56,8 @@ class LeafMaster extends Worker
 
     public function onMessage($connection, $data)
     {
-        $data = json_decode($data, true);
-        if (is_string($data)) {
-            $data = json_decode($data, true);
-        }
-        $cmd  = $data['cmd'];
-        $data = $data['data'] ?? [];
-
+        Log::log('INFO', 'LeafMaster:' . $data . PHP_EOL);
+        list($cmd, $data) = $this->parse($data);
         if ($cmd == 'started') {
             $this->addWorker($data['workerId'], $data);
             $timerId = Timer::add(10, function () use ($data, &$timerId) {
@@ -72,32 +67,23 @@ class LeafMaster extends Worker
                     Log::log('INFO', 'DeadLeafWorker:' . $data['workerId'] . ',listen:' . $data['listen'] . PHP_EOL);
                     return;
                 }
-                $master = stream_socket_client('tcp://' . $data['listen']);
-                $data   = [
-                    'cmd' => 'ping',
-                ];
-                fwrite($master, json_encode($data) . "\n");
-                fclose($master);
+                $address = 'text://' . $data['listen'];
+                InnerTcpConnection::getInstance()->listen($address)->send($address, 'ping', []);
             });
         } else if ($cmd == 'numberOff') {
             $this->maxNumber = max($this->maxNumber, $data['number']);
 //            Redis::set('leaf:maxNumber', $this->maxNumber);
         } elseif ($cmd == 'updateRange') {
-            $nextMin = $this->getNextMin();
             if (!isset($this->listenerList[$data['workerId']])) {
                 return;
             }
-            $listen = $this->listenerList[$data['workerId']]['listen'];
-            $master = stream_socket_client('tcp://' . $listen);
-            $data   = [
+            $connection->send(json_encode([
                 'cmd'  => 'updateRange',
                 'data' => [
-                    'min' => $nextMin,
+                    'min' => $nextMin = $this->getNextMin(),
                     'max' => $nextMin + ($this->getConfig('step', 1000)) - 1,
                 ]
-            ];
-            fwrite($master, json_encode($data) . "\n");
-            fclose($master);
+            ]));
         }
     }
 
@@ -106,29 +92,13 @@ class LeafMaster extends Worker
         $worker->reload();
     }
 
-    /**
-     * @param $key
-     * @return array|string
-     */
-    public function getConfig($key = '*', $defaultValue = '')
-    {
-        if (strstr($key, '.')) {
-            list($firstName, $secondName) = explode('.', $key);
-            return $this->config[$firstName][$secondName] ?? $defaultValue;
-        } else if ($key != '*') {
-            return $this->config[$key] ?? $defaultValue;
-        } else {
-            return $this->config;
-        }
-    }
-
     protected function getNextMin($currentMaxNumber = null)
     {
         $i                 = $currentMaxNumber ?? $this->maxNumber;
-        $bucketSpaceNumber = count($this->listenerList) - 1 ?? 1;
+        $bucketSpaceNumber = count($this->listenerList) - 1;
+        $bucketSpaceNumber = $bucketSpaceNumber > 0 ? $bucketSpaceNumber : 1;
         $bucketStep        = $this->getConfig('step');
-        $num               = str_pad(1, strlen($i), 0);
-        return (int)ceil($i / $num) * $bucketSpaceNumber * $bucketStep + 1;
+        return $i + $bucketStep * $bucketSpaceNumber + 1;
     }
 
 

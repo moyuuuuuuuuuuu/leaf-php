@@ -42,7 +42,6 @@ return [
     'leafMaster' => [
         'handler'     => process\LeafMasterManage::class,
         'count'       => 1,
-        'listen'      => 'text://0.0.0.0:9001',
         'reloadable'  => true,
         'constructor' => [
             'config' => base_path() . '/config/leaf_listener.json',
