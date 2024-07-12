@@ -1,18 +1,31 @@
 {
+  "step": 1000,
+  "timeOut": 50,
+  "fill": false,
   "master": {
     "currentId": 0,
     "listen": "127.0.0.1:9001",
     "token": "leaf"
   },
-  "step": 10,
-  "timeOut": 50,
-  "fill": false,
+  "distribution": {
+    "listen": "127.0.0.1:8080",
+    "count": 6,
+    "reusePort": true
+  },
   "worker": [
     {
       "listen": "127.0.0.1:9002",
       "min": 1,
-      "max": 10,
-      "step": 1
+      "max": 1000,
+      "step": 1,
+      "count": 4
+    },
+    {
+      "listen": "127.0.0.1:9003",
+      "min": 1001,
+      "max": 2000,
+      "step": 1,
+      "count": 4
     }
   ]
 }

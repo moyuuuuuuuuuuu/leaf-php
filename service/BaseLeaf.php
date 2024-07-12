@@ -6,6 +6,7 @@ use Workerman\Worker;
 
 class BaseLeaf extends Worker
 {
+    protected $workUinId;
     public function parse(string $data)
     {
         $data = json_decode($data, true);
@@ -16,8 +17,6 @@ class BaseLeaf extends Worker
         $data = $data['data'] ?? [];
         return [$cmd, $data];
     }
-
-
     /**
      * @param $key
      * @return array|string

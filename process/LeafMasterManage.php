@@ -31,10 +31,7 @@ class LeafMasterManage
         $this->master                 = new LeafMaster("text://{$this->config['master']['listen']}", $this->config);
         $this->master->onMessage      = [$this->master, 'onMessage'];
         $this->master->onWorkerStart  = [$this->master, 'onWorkerStart'];
-//        $this->master->onError        = [$this->master, 'onError'];
         $this->master->onWorkerReload = [$this->master, 'onWorkerReload'];
-//        $this->master->onClose        = [$this->master, 'onClose'];
-//        $this->master->onConnect      = [$this->master, 'onConnnect'];
         $this->master->count = 1;
         $this->master->run();
     }

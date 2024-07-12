@@ -13,19 +13,37 @@ class LeafMaster extends BaseLeaf
 
     protected $listenerList = [];
 
-    protected $config   = [];
-    protected $isMaster = true;
+    protected $config = [];
+
+    /**
+     * @var LeafWorker[]
+     */
+    protected $workerNodeList = [];
+    protected $isMaster       = true;
     /**
      * 当前最大号
      * @var int
      */
     protected $maxNumber = 0;
+    /**
+     * 请求分发节点
+     * @var RequestDistribution
+     */
+    protected $distributionNode;
 
     public function addWorker($workerId, $data)
     {
         $this->listenerList[$workerId] = $data;
     }
 
+
+    /**
+     * @return LeafWorker[]
+     */
+    public function getNodes()
+    {
+        return $this->workerNodeList;
+    }
 
     public function __construct($socket_name = '', array $config = [], array $context_option = array())
     {
@@ -41,30 +59,26 @@ class LeafMaster extends BaseLeaf
     {
         //创建leafWorker
         foreach ($this->getConfig('worker') as $key => $config) {
-            $leafWorker                 = new LeafWorker("text://{$config['listen']}", $config, $this->getConfig('master.listen'), $this);
-            $leafWorker->reusePort      = true;
-            $leafWorker->count          = 4;
-            $leafWorker->onMessage      = [$leafWorker, 'onMessage'];
-            $leafWorker->onWorkerStart  = [$leafWorker, 'onWorkerStart'];
-            $leafWorker->onWorkerReload = [$leafWorker, 'onWorkerReload'];
-            $leafWorker->count          = 1;
-            $leafWorker->run();
+            $leafWorker                                   = $this->runWorker($config);
+            $this->workerNodeList[$leafWorker->workUinId] = $leafWorker;
         }
-        //从redis获取maxNumber 并更新各个桶的取号范围
+        $this->distributionNode            = new RequestDistribution("text://{$this->getConfig('distribution.listen','127.0.0.1:8080')}", $worker);
+        $this->distributionNode->count     = $this->getConfig('distribution.count', 1);
+        $this->distributionNode->reusePort = $this->getConfig('distribution.reusePort', false);
+        $this->distributionNode->onMessage = [$this->distributionNode, 'onMessage'];
+        $this->distributionNode->run();
     }
 
 
     public function onMessage($connection, $data)
     {
-        Log::log('INFO', 'LeafMaster:' . $data . PHP_EOL);
         list($cmd, $data) = $this->parse($data);
         if ($cmd == 'started') {
             $this->addWorker($data['workerId'], $data);
             $timerId = Timer::add(10, function () use ($data, &$timerId) {
                 if (time() - ($this->listenerList[$data['workerId']]['lastPingTime'] ?? 0) > $this->getConfig('timeOut', 60)) {
-                    unset($this->listenerList[$data['workerId']]);
-                    Timer::del($timerId);
-                    Log::log('INFO', 'DeadLeafWorker:' . $data['workerId'] . ',listen:' . $data['listen'] . PHP_EOL);
+                    if (isset($this->workerNodeList[$data['workerId']]))
+                        $this->runWorker($this->workerNodeList[$data['workerId']]->getConfig());
                     return;
                 }
                 $address = 'text://' . $data['listen'];
@@ -77,13 +91,12 @@ class LeafMaster extends BaseLeaf
             if (!isset($this->listenerList[$data['workerId']])) {
                 return;
             }
-            $connection->send(json_encode([
-                'cmd'  => 'updateRange',
-                'data' => [
-                    'min' => $nextMin = $this->getNextMin(),
-                    'max' => $nextMin + ($this->getConfig('step', 1000)) - 1,
-                ]
-            ]));
+
+            $address = 'text://' . $this->listenerList[$data['workerId']]['listen'];
+            InnerTcpConnection::getInstance()->listen($address)->send($address, 'updateRange', [
+                'min' => $nextMin = $this->getNextMin(),
+                'max' => $nextMin + ($this->getConfig('step', 1000)) - 1,
+            ]);
         }
     }
 
@@ -101,5 +114,16 @@ class LeafMaster extends BaseLeaf
         return $i + $bucketStep * $bucketSpaceNumber + 1;
     }
 
+    protected function runWorker(array $config = [])
+    {
+        $leafWorker                 = new LeafWorker("text://{$config['listen']}", $config, $this->getConfig('master.listen'), $this);
+        $leafWorker->count          = 4;
+        $leafWorker->onMessage      = [$leafWorker, 'onMessage'];
+        $leafWorker->onWorkerStart  = [$leafWorker, 'onWorkerStart'];
+        $leafWorker->onWorkerReload = [$leafWorker, 'onWorkerReload'];
+        $leafWorker->count          = 1;
+        $leafWorker->run();
+        return $leafWorker;
+    }
 
 }

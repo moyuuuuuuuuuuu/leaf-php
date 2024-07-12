@@ -47,5 +47,4 @@ return [
             'config' => base_path() . '/config/leaf_listener.json',
         ],
     ]
-
 ];

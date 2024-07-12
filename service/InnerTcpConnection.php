@@ -15,6 +15,10 @@ class InnerTcpConnection
      */
     protected $addressConnection = [];
 
+    protected function __construct()
+    {
+    }
+
     public static function getInstance()
     {
         if (self::$instance) {

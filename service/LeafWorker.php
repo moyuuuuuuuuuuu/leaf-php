@@ -26,9 +26,17 @@ class LeafWorker extends BaseLeaf
      */
     protected $canGiveOffer = true;
 
+    protected $address = '';
+
+    public function getCanGiveOff()
+    {
+        return $this->canGiveOffer ;
+    }
+
     public function __construct($socket_name = '', array $config = [], string $masterListen = '', LeafMaster $master = null, array $context_option = array())
     {
         parent::__construct($socket_name, $context_option);
+        $this->address   = $socket_name;
         $this->workUinId = rand(1000, 9999);
         if (!$config) {
             throw new NotFoundException('Leaf config file format error');
@@ -44,15 +52,7 @@ class LeafWorker extends BaseLeaf
 
     public function onWorkerStart(Worker $worker)
     {
-        InnerTcpConnection::getInstance()->listen('text://' . $this->masterListen, [], function (AsyncTcpConnection $connection, $data) use (&$worker) {
-            Log::log('INFO', 'LeafTcpConnection:' . $data . PHP_EOL);
-            list($cmd, $data) = $worker->parse($data);
-            if ($cmd == 'updateRange') {
-                $this->currentId    = $data['min'];
-                $this->config       = array_merge($this->config, $data);
-                $this->canGiveOffer = true;
-            }
-        })->send('text://' . $this->masterListen, 'started', [
+        InnerTcpConnection::getInstance()->listen('text://' . $this->masterListen)->send('text://' . $this->masterListen, 'started', [
             'workerId'     => $worker->workUinId,
             'listen'       => $this->getConfig('listen'),
             'pidFile'      => $worker::$pidFile,
@@ -62,7 +62,6 @@ class LeafWorker extends BaseLeaf
 
     public function onMessage(TcpConnection $connection, $data)
     {
-        Log::log('INFO', 'LeafWorker:' . $data . PHP_EOL);
         list($cmd, $data) = $this->parse($data);
         if ($cmd == 'ping') {
             $data = [
@@ -71,32 +70,10 @@ class LeafWorker extends BaseLeaf
                 'lastPingTime' => time(),
             ];
             InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'pong', $data);
-        } else if ($cmd == 'offer') {
-            //发号
-            if ($this->currentId + ($this->getConfig('step', 1)) > $this->getConfig('max')) {
-                $connection->send(json_encode(['status' => 'fail', 'msg' => 'The number has been used up']));
-                $connection->close();
-                $data = ['workerId' => $this->workUinId];
-                InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'updateRange', $data);
-                return;
-            }
-            //取号
-            $currentId = $this->currentId;
-            $fill      = $data['fill'] ?? false;
-            if ($fill) {
-                $currentId = str_pad($currentId, 10, 0, STR_PAD_LEFT);
-            }
-            $connection->send(json_encode(['status' => 'success', 'no' => $currentId]));
-            $connection->close();
-            //通知master更新已发的最大号
-            $data = ['workerId' => $this->workUinId, 'number' => $this->currentId];
-            InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'numberOff', $data);
-            if ($this->currentId + ($this->getConfig('step', 1)) <= $this->getConfig('max')) {
-                $this->currentId += $this->getConfig('step', 1);
-            } else {
-                $data = ['workerId' => $this->workUinId];
-                InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'updateRange', $data);
-            }
+        } else if ($cmd == 'updateRange') {
+            $this->currentId    = $data['min'];
+            $this->config       = array_merge($this->config, $data);
+            $this->canGiveOffer = true;
         }
     }
 
@@ -104,4 +81,38 @@ class LeafWorker extends BaseLeaf
     {
         $worker->reload();
     }
+
+    public function getAddress()
+    {
+        return $this->address;
+    }
+
+    public function getOffer()
+    {
+        //发号
+        if (!$this->canGiveOffer) {
+            $data = ['workerId' => $this->workUinId];
+            InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'updateRange', $data);
+            return ['status' => 'fail', 'msg' => 'The number has been used up'];
+        }
+        //取号
+        $currentId = $this->currentId;
+        $fill      = $data['fill'] ?? false;
+        if ($fill) {
+            $currentId = str_pad($currentId, 10, 0, STR_PAD_LEFT);
+        }
+        $result = ['status' => 'success', 'no' => $currentId];
+        //通知master更新已发的最大号
+        $data = ['workerId' => $this->workUinId, 'number' => $this->currentId];
+        InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'numberOff', $data);
+        if ($this->currentId + ($this->getConfig('step', 1)) <= $this->getConfig('max')) {
+            $this->currentId += $this->getConfig('step', 1);
+        } else {
+            $data = ['workerId' => $this->workUinId];
+            InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'updateRange', $data);
+            $this->canGiveOffer = false;
+        }
+        return $result;
+    }
+
 }
