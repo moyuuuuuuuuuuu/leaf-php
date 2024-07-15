@@ -2,78 +2,89 @@
 
 namespace service;
 
+use util\{Config, Util};
 use support\Log;
 use Webman\Exception\NotFoundException;
-use Workerman\Connection\AsyncTcpConnection;
 use Workerman\Connection\TcpConnection;
-use Workerman\Timer;
 use Workerman\Worker;
 
-class LeafWorker extends BaseLeaf
+class LeafWorker extends Worker
 {
-    public    $onMessage      = [self::class, 'onMessage'];
-    public    $onWorkerStart  = [self::class, 'onWorkerStart'];
-    public    $onWorkerReload = [self::class, 'onWorkerReload'];
-    protected $masterListen   = '';
-    protected $isMaster       = false;
-    protected $config         = null;
-    protected $currentId      = 0;
-    protected $master         = null;
+    protected $master    = '';
+    protected $config    = null;
+    protected $currentId = 0;
+    protected $address   = '';
+    protected $lock      = false;
+
+    protected $hasNumber = true;
+
+    protected $workUinId = 0;
+
+    public function hasNumber()
+    {
+        return $this->hasNumber;
+    }
+
+    public function isLock(): bool
+    {
+        return $this->lock;
+    }
+
+    public function setLock($lockNum)
+    {
+        $this->lock = $lockNum;
+    }
+
+    public function unlock()
+    {
+        $this->lock = false;
+    }
+
     /**
-     * 是否可以发号
-     * 当发号到最大值时，请求master更新取号范围期间不可发号
-     * @var bool
+     * @throws NotFoundException
      */
-    protected $canGiveOffer = true;
-
-    protected $address = '';
-
-    public function getCanGiveOff()
+    public function __construct($socket_name = '', array $config = [], LeafMaster $master = null, array $context_option = array())
     {
-        return $this->canGiveOffer ;
-    }
-
-    public function __construct($socket_name = '', array $config = [], string $masterListen = '', LeafMaster $master = null, array $context_option = array())
-    {
-        parent::__construct($socket_name, $context_option);
-        $this->address   = $socket_name;
-        $this->workUinId = rand(1000, 9999);
         if (!$config) {
-            throw new NotFoundException('Leaf config file format error');
+            throw new NotFoundException('Leaf Worker config file format error');
         }
-        if (!$master) {
-            throw new NotFoundException('Leaf master listen not found');
-        }
-        $this->masterListen = $masterListen;
-        $this->master       = $master;
-        $this->config       = $config;
-        $this->currentId    = $config['min'];
+        parent::__construct($socket_name, $context_option);
+        $this->master    = $master;
+        $this->config    = $config;
+        $this->currentId = $config['min'];
+        $this->max       = $config['max'];
     }
 
-    public function onWorkerStart(Worker $worker)
+    /**
+     * @param self $worker
+     * @return void
+     */
+    public function onWorkerStart(LeafWorker $worker)
     {
-        InnerTcpConnection::getInstance()->listen('text://' . $this->masterListen)->send('text://' . $this->masterListen, 'started', [
-            'workerId'     => $worker->workUinId,
-            'listen'       => $this->getConfig('listen'),
-            'pidFile'      => $worker::$pidFile,
-            'lastPingTime' => time()
+        Util::send($this->master->getSocketName(), 'started', [
+            'workerId'     => $worker->workerId,
+            'listen'       => $worker->getConfig('listen'),
+            'lastPingTime' => time(),
+            'w'            => static::class
         ]);
     }
 
     public function onMessage(TcpConnection $connection, $data)
     {
-        list($cmd, $data) = $this->parse($data);
+        $connection->close();
+        list($cmd, $data) = Util::parse($data);
         if ($cmd == 'ping') {
             $data = [
-                'workerId'     => $this->workUinId,
-                'listen'       => $this->getConfig('listen'),
+                'workerId'     => $this->workerId,
+                'listen'       => $this->config['listen'],
                 'lastPingTime' => time(),
+                'w'            => static::class
             ];
-            InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'pong', $data);
+            Util::send($this->master->getSocketName(), 'pong', $data);
         } else if ($cmd == 'updateRange') {
-            $this->currentId    = $data['min'];
-            $this->config       = array_merge($this->config, $data);
-            $this->canGiveOffer = true;
+            $this->currentId = $data['min'];
+            $this->config    = array_merge($this->config, $data);
+            $this->hasNumber = true;
         }
     }
 
@@ -82,18 +93,18 @@ class LeafWorker extends BaseLeaf
         $worker->reload();
     }
 
-    public function getAddress()
+    public function getOffer($withLock = false, $lockNum = null): array
     {
-        return $this->address;
-    }
 
-    public function getOffer()
-    {
         //发号
-        if (!$this->canGiveOffer) {
-            $data = ['workerId' => $this->workUinId];
-            InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'updateRange', $data);
-            return ['status' => 'fail', 'msg' => 'The number has been used up'];
+        if ($this->lock != $lockNum && $withLock) {
+            return ['status' => 'fail', 'msg' => 'The bucket is locked'];
+        }
+
+        if (!$this->hasNumber) {
+            $data = ['workerId' => $this->workerId];
+            Util::send($this->master->getSocketName(), 'updateRange', $data);
+            return ['status' => 'fail', 'msg' => 'The bucket has no number'];
         }
         //取号
         $currentId = $this->currentId;
@@ -103,16 +114,32 @@ class LeafWorker extends BaseLeaf
         }
         $result = ['status' => 'success', 'no' => $currentId];
         //通知master更新已发的最大号
-        $data = ['workerId' => $this->workUinId, 'number' => $this->currentId];
-        InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'numberOff', $data);
-        if ($this->currentId + ($this->getConfig('step', 1)) <= $this->getConfig('max')) {
-            $this->currentId += $this->getConfig('step', 1);
+        $data = ['workerId' => $this->workerId, 'number' => $this->currentId];
+        Util::send($this->master->getSocketName(), 'numberOff', $data);
+        if ($this->currentId + $this->config['step'] <= $this->config['max']) {
+            $this->currentId += $this->config['step'];
         } else {
-            $data = ['workerId' => $this->workUinId];
-            InnerTcpConnection::getInstance()->send('text://' . $this->masterListen, 'updateRange', $data);
-            $this->canGiveOffer = false;
+            $data = ['workerId' => $this->workerId];
+            Util::send($this->master->getSocketName(), 'updateRange', $data);
+            $this->hasNumber = false;
         }
         return $result;
     }
 
+    /**
+     * @param string $key
+     * @param string $defaultValue
+     * @return array|string
+     */
+    public function getConfig(string $key = '*', string $defaultValue = '')
+    {
+        if (strstr($key, '.')) {
+            list($firstName, $secondName) = explode('.', $key);
+            return $this->config[$firstName][$secondName] ?? $defaultValue;
+        } else if ($key != '*') {
+            return $this->config[$key] ?? $defaultValue;
+        } else {
+            return $this->config;
+        }
+    }
 }

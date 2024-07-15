@@ -44,7 +44,7 @@ return [
         'count'       => 1,
         'reloadable'  => true,
         'constructor' => [
-            'config' => base_path() . '/config/leaf_listener.json',
+            'config' => include config_path() . '/leaf.php',
         ],
     ]
 ];

@@ -3,7 +3,8 @@
 namespace process;
 
 use service\LeafMaster;
-use Webman\Exception\NotFoundException;
+use util\Config;
+use Webman\Exception\No;
 use Workerman\Timer;
 use Workerman\Worker;
 
@@ -13,26 +14,19 @@ class LeafMasterManage
 
     private $master = null;
 
-    private $worker = [];
-
-    public function __construct(string $configFile)
+    public function __construct(array $config = [])
     {
-        if (!is_file($configFile)) {
-            throw new NotFoundException('Leaf config file not found');
-        }
-        $this->config = json_decode(file_get_contents($configFile), true);
-        if (json_last_error()) {
-            throw new NotFoundException('Leaf config file format error');
-        }
+        $this->config = Config::getInstance();
+        $this->config->load($config);
     }
 
     public function onWorkerStart(Worker $worker)
     {
-        $this->master                 = new LeafMaster("text://{$this->config['master']['listen']}", $this->config);
+        $this->master                 = new LeafMaster("text://{$this->config->get('master.listen')}");
         $this->master->onMessage      = [$this->master, 'onMessage'];
         $this->master->onWorkerStart  = [$this->master, 'onWorkerStart'];
         $this->master->onWorkerReload = [$this->master, 'onWorkerReload'];
-        $this->master->count = 1;
+        $this->master->count          = 1;
         $this->master->run();
     }
 }
