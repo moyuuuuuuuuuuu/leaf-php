@@ -31,12 +31,10 @@ class LeafMaster extends Worker
 
     public function addWorker($workerId, $data)
     {
-        $this->listenerList[$workerId] = $data;
-    }
-
-    public function addNode($workerId, $node)
-    {
-        $this->workerNodeList[$workerId] = $node;
+        if (!isset($this->listenerList[$workerId])) {
+            $this->listenerList[$workerId] = $data;
+            return;
+        }
     }
 
     /**
@@ -54,8 +52,8 @@ class LeafMaster extends Worker
     public function onWorkerStart(Worker $worker)
     {
         //创建leafWorker
-        foreach (Config::getInstance()->get('worker') as $config) {
-            $this->runLeafWorker($worker, $config);
+        foreach (Config::getInstance()->get('worker') as $key => $config) {
+            $this->runLeafWorker($worker, $config, $key);
         }
         $this->runDisReqCenter(Config::getInstance()->get('distribution'));
 
@@ -66,32 +64,40 @@ class LeafMaster extends Worker
         $connection->close();
         list($cmd, $data) = Util::parse($data);
         if ($cmd == 'started') {
-            if ($data['w'] instanceof LeafWorker) {
-                $this->addWorker($data['workerId'], $data);
-            }
-            $timerId = Timer::add(1, function () use ($data, &$timerId) {
-                $lastPingTime = $this->listenerList[$data['workerId']]['lastPingTime'] ?? 0;
-                $heartBeaTime = Config::getInstance()->get('timeOut', 50);
-                if (time() - $lastPingTime > $heartBeaTime) {
-                    if ($data['w'] instanceof LeafWorker) {
-                        $leafWorker = $this->getLeafWorker($data['workerId']);
-                        if (!$leafWorker) {
-                            $this->removeLeafWorker($data['workerId']);
-                        }
-                        $this->runLeafWorker($this, $leafWorker->getConfig());
-                    } else if ($data['w'] instanceof DisReqCenter) {
+            $timerId = Timer::add(10, function () use ($data, &$timerId) {
+                if ($data['w'] instanceof LeafWorker) {
+                    $worker = $this->getWorker($data['workerId']);
+                    if (!$worker) {
                         $this->removeLeafWorker($data['workerId']);
-                        $this->runDisReqCenter(Config::getInstance()->get('distribution'));
+                        $callback = function () use ($data) {
+                            $this->runLeafWorker($this, $data);
+                        };
                     }
+                } else if ($data['w'] instanceof DisReqCenter) {
+                    $worker = $this->distributionNode;
+                    if (!$worker) {
+                        $callback = function () use ($data) {
+                            $this->runDisReqCenter(Config::getInstance()->get('distribution'));
+                        };
+                    }
+                }
+                if (!$worker) {
+                    Timer::del($timerId);
                     return;
                 }
-                Util::send($this->workerNodeList[$data['workerId']]->getSocketName(), 'ping', []);
+
+                if (time() - $worker->lastPingTime > Config::getInstance()->get('timeOut')) {
+                    $callback();
+                    return;
+                }
+
+                Util::send($worker->getSocketName(), 'ping', []);
             });
         } else if ($cmd == 'numberOff') {
             $this->maxNumber = max($this->maxNumber, $data['number']);
 //            Redis::set('leaf:maxNumber', $this->maxNumber);
         } elseif ($cmd == 'updateRange') {
-            Util::send($this->getLeafWorker($data['workerId'])->getSocketName(), 'updateRange', [
+            Util::send($this->getWorker($data['workerId'])->getSocketName(), 'updateRange', [
                 'min' => $nextMin = $this->getNextMin(),
                 'max' => $nextMin + (Config::getInstance()->get('step', 1000)) - 1,
             ]);
@@ -127,7 +133,7 @@ class LeafMaster extends Worker
             $leafWorker->onWorkerStart  = [$leafWorker, 'onWorkerStart'];
             $leafWorker->onWorkerReload = [$leafWorker, 'onWorkerReload'];
             $leafWorker->run();
-            $worker->addNode($leafWorker->workerId, $leafWorker);
+            $this->workerNodeList[$leafWorker->workerId] = $leafWorker;
         } catch (Exception $e) {
             throw new NotFoundException('run hosted ' . $config['listen'] . ' Leaf Worker failure : ' . $e->getMessage());
         }
@@ -155,7 +161,7 @@ class LeafMaster extends Worker
      * @param $workerId
      * @return LeafWorker|null
      */
-    protected function getLeafWorker($workerId)
+    protected function getWorker($workerId)
     {
         if (!isset($this->workerNodeList[$workerId])) return null;
         return $this->workerNodeList[$workerId];

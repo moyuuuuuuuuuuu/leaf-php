@@ -8,12 +8,14 @@ use Workerman\Worker;
 
 class DisReqCenter extends Worker
 {
+
+    public    $lastPingTime;
     protected $master;
 
     public function __construct($socket_name = '', LeafMaster $master = null)
     {
         parent::__construct($socket_name);
-        $this->master    = $master;
+        $this->master = $master;
     }
 
     public function onWorkerStart(self $worker)
@@ -21,7 +23,7 @@ class DisReqCenter extends Worker
         Util::send($this->master->getSocketName(), 'started', [
             'workerId'     => $worker->workerId,
             'listen'       => Config::getInstance()->get('listen'),
-            'lastPingTime' => time(),
+            'lastPingTime' => $this->lastPingTime ?? time(),
             'w'            => static::class
         ]);
     }

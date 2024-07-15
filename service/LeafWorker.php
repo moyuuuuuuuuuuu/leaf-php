@@ -10,6 +10,7 @@ use Workerman\Worker;
 
 class LeafWorker extends Worker
 {
+    public    $lastPingTime;
     protected $master    = '';
     protected $config    = null;
     protected $currentId = 0;
@@ -61,11 +62,11 @@ class LeafWorker extends Worker
      */
     public function onWorkerStart(LeafWorker $worker)
     {
+        $this->lastPingTime = time();
         Util::send($this->master->getSocketName(), 'started', [
-            'workerId'     => $worker->workerId,
-            'listen'       => $worker->getConfig('listen'),
-            'lastPingTime' => time(),
-            'w'            => static::class
+            'workerId' => $worker->workerId,
+            'listen'   => $worker->getConfig('listen'),
+            'w'        => static::class
         ]);
     }
 
@@ -74,11 +75,11 @@ class LeafWorker extends Worker
         $connection->close();
         list($cmd, $data) = Util::parse($data);
         if ($cmd == 'ping') {
-            $data = [
-                'workerId'     => $this->workerId,
-                'listen'       => $this->config['listen'],
-                'lastPingTime' => time(),
-                'w'            => static::class
+            $this->lastPingTime = time();
+            $data               = [
+                'workerId' => $this->workerId,
+                'listen'   => $this->config['listen'],
+                'w'        => static::class
             ];
             Util::send($this->master->getSocketName(), 'pong', $data);
         } else if ($cmd == 'updateRange') {
