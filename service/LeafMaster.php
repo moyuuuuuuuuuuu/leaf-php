@@ -4,16 +4,13 @@ namespace service;
 
 use util\{Config, Util};
 use Exception;
-use support\Log;
+use support\Redis;
 use Webman\Exception\NotFoundException;
 use Workerman\Timer;
 use Workerman\Worker;
 
 class LeafMaster extends Worker
 {
-
-    protected $listenerList = [];
-
     /**
      * @var LeafWorker[]
      */
@@ -28,14 +25,11 @@ class LeafMaster extends Worker
      * @var DisReqCenter
      */
     protected $distributionNode;
+    /**
+     * @var Redis
+     */
 
-    public function addWorker($workerId, $data)
-    {
-        if (!isset($this->listenerList[$workerId])) {
-            $this->listenerList[$workerId] = $data;
-            return;
-        }
-    }
+    protected $redis = null;
 
     /**
      * @return LeafWorker[]
@@ -56,38 +50,41 @@ class LeafMaster extends Worker
             $this->runLeafWorker($worker, $config, $key);
         }
         $this->runDisReqCenter(Config::getInstance()->get('distribution'));
-
+        $this->redis = Redis::connection();
     }
 
     public function onMessage($connection, $data)
     {
         $connection->close();
         list($cmd, $data) = Util::parse($data);
-        if ($cmd == 'started') {
+        if ($cmd === 'startedDisReq') {
             $timerId = Timer::add(10, function () use ($data, &$timerId) {
-                if ($data['w'] instanceof LeafWorker) {
-                    $worker = $this->getWorker($data['workerId']);
-                    if (!$worker) {
-                        $this->removeLeafWorker($data['workerId']);
-                        $callback = function () use ($data) {
-                            $this->runLeafWorker($this, $data);
-                        };
-                    }
-                } else if ($data['w'] instanceof DisReqCenter) {
-                    $worker = $this->distributionNode;
-                    if (!$worker) {
-                        $callback = function () use ($data) {
-                            $this->runDisReqCenter(Config::getInstance()->get('distribution'));
-                        };
-                    }
+                $worker = $this->distributionNode;
+                if (!$worker) {
+                    $this->runDisReqCenter(Config::getInstance()->get('distribution'));
                 }
+                if (time() - $worker->lastPingTime > Config::getInstance()->get('timeOut')) {
+                    $this->runDisReqCenter(Config::getInstance()->get('distribution'));
+                    return;
+                }
+                Util::send($worker->getSocketName(), 'ping', []);
+            });
+        } elseif ($cmd == 'started') {
+            //TODO:通过redis获取最大的号 然后下发给各个桶
+            $timerId = Timer::add(10, function () use ($data, &$timerId) {
+                $worker = $this->getWorker($data['workerId']);
+                if (!$worker) {
+                    $this->removeLeafWorker($data['workerId']);
+                    $this->runLeafWorker($this, $data);
+                }
+
                 if (!$worker) {
                     Timer::del($timerId);
                     return;
                 }
 
                 if (time() - $worker->lastPingTime > Config::getInstance()->get('timeOut')) {
-                    $callback();
+                    $this->runLeafWorker($this, $data);
                     return;
                 }
 
@@ -95,7 +92,7 @@ class LeafMaster extends Worker
             });
         } else if ($cmd == 'numberOff') {
             $this->maxNumber = max($this->maxNumber, $data['number']);
-//            Redis::set('leaf:maxNumber', $this->maxNumber);
+            $this->redis->set('leaf:maxNumber', $this->maxNumber);
         } elseif ($cmd == 'updateRange') {
             Util::send($this->getWorker($data['workerId'])->getSocketName(), 'updateRange', [
                 'min' => $nextMin = $this->getNextMin(),
@@ -112,7 +109,7 @@ class LeafMaster extends Worker
     protected function getNextMin($currentMaxNumber = null)
     {
         $i                 = $currentMaxNumber ?? $this->maxNumber;
-        $bucketSpaceNumber = count($this->listenerList) - 1;
+        $bucketSpaceNumber = count($this->workerNodeList) - 1;
         $bucketSpaceNumber = $bucketSpaceNumber > 0 ? $bucketSpaceNumber : 1;
         $bucketStep        = Config::getInstance()->get('step');
         return $i + $bucketStep * $bucketSpaceNumber + 1;

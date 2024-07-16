@@ -20,11 +20,10 @@ class DisReqCenter extends Worker
 
     public function onWorkerStart(self $worker)
     {
-        Util::send($this->master->getSocketName(), 'started', [
+        Util::send($this->master->getSocketName(), 'startedDisReq', [
             'workerId'     => $worker->workerId,
             'listen'       => Config::getInstance()->get('listen'),
             'lastPingTime' => $this->lastPingTime ?? time(),
-            'w'            => static::class
         ]);
     }
 

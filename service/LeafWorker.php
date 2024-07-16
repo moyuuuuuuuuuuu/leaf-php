@@ -66,7 +66,6 @@ class LeafWorker extends Worker
         Util::send($this->master->getSocketName(), 'started', [
             'workerId' => $worker->workerId,
             'listen'   => $worker->getConfig('listen'),
-            'w'        => static::class
         ]);
     }
 
