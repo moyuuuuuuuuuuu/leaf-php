@@ -24,7 +24,7 @@ class IndexController
             }
         }
         fclose($stream);
-        echo $response;
+        echo $response . PHP_EOL;
 //        Log::log('info', "Controller/" . $response);
         return $response;
     }

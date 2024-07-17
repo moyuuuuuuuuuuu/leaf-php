@@ -65,7 +65,7 @@ class LeafWorker extends Worker
         $this->lastPingTime = time();
         Util::send($this->master->getSocketName(), 'started', [
             'workerId' => $worker->workerId,
-            'listen'   => $worker->getConfig('listen'),
+            'listen'   => $this->config['listen'],
         ]);
     }
 
@@ -75,12 +75,12 @@ class LeafWorker extends Worker
         list($cmd, $data) = Util::parse($data);
         if ($cmd == 'ping') {
             $this->lastPingTime = time();
-            $data               = [
-                'workerId' => $this->workerId,
-                'listen'   => $this->config['listen'],
-                'w'        => static::class
-            ];
-            Util::send($this->master->getSocketName(), 'pong', $data);
+            /* $data               = [
+                 'workerId' => $this->workerId,
+                 'listen'   => $this->config['listen'],
+                 'w'        => static::class
+             ];
+             Util::send($this->master->getSocketName(), 'pong', $data);*/
         } else if ($cmd == 'updateRange') {
             $this->currentId = $data['min'];
             $this->config    = array_merge($this->config, $data);
@@ -95,8 +95,6 @@ class LeafWorker extends Worker
 
     public function getOffer($withLock = false, $lockNum = null): array
     {
-
-        //发号
         if ($this->lock != $lockNum && $withLock) {
             return ['status' => 'fail', 'msg' => 'The bucket is locked'];
         }
@@ -124,22 +122,5 @@ class LeafWorker extends Worker
             $this->hasNumber = false;
         }
         return $result;
-    }
-
-    /**
-     * @param string $key
-     * @param string $defaultValue
-     * @return array|string
-     */
-    public function getConfig(string $key = '*', string $defaultValue = '')
-    {
-        if (strstr($key, '.')) {
-            list($firstName, $secondName) = explode('.', $key);
-            return $this->config[$firstName][$secondName] ?? $defaultValue;
-        } else if ($key != '*') {
-            return $this->config[$key] ?? $defaultValue;
-        } else {
-            return $this->config;
-        }
     }
 }

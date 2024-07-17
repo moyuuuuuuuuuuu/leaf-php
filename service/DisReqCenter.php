@@ -22,14 +22,14 @@ class DisReqCenter extends Worker
     {
         Util::send($this->master->getSocketName(), 'startedDisReq', [
             'workerId'     => $worker->workerId,
-            'listen'       => Config::getInstance()->get('listen'),
+            'listen'       => Config::getInstance()->get('distribution.listen'),
             'lastPingTime' => $this->lastPingTime ?? time(),
         ]);
     }
 
     public function onMessage(TcpConnection $connection, $data)
     {
-        list($cmd, $data) = Util::parse($data);
+        list($cmd,) = Util::parse($data);
         if (!$cmd) {
             $connection->send(json_encode(['cmd' => 'error', 'data' => 'cmd not found']));
             $connection->close();
@@ -59,13 +59,14 @@ class DisReqCenter extends Worker
             $connection->close();
             return;
         } elseif ($cmd == 'ping') {
-            $data = [
-                'workerId'     => $this->workerId,
-                'listen'       => Config::getInstance()->get('listen'),
-                'lastPingTime' => time(),
-                'w'            => static::class
-            ];
-            Util::send($this->master->getSocketName(), 'pong', $data);
+            $this->lastPingTime = time();
+            /* $data               = [
+                 'workerId'     => $this->workerId,
+                 'listen'       => Config::getInstance()->get('distribution.listen'),
+                 'lastPingTime' => $this->lastPingTime,
+             ];*/
+//            Util::send($this->master->getSocketName(), 'pong', $data);
+            return;
         }
         $connection->send(json_encode(['cmd' => 'fail', 'data' => 'do nothing']));
         $connection->close();
