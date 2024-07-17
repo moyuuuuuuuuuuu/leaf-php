@@ -6,9 +6,26 @@ use Workerman\Connection\AsyncTcpConnection;
 
 class Util
 {
-    static function send($address, string $cmd, ?array $data = null, array $context = []): void
+    /**
+     * @param $address
+     * @param string $cmd
+     * @param array|null $data
+     * @param array $context
+     * @param array{
+     *     onMessage:callable,
+     *     onConnect:callable,
+     *     onClose:callable,
+     *     onError:callable
+     * } $callableMap
+     * @return AsyncTcpConnection
+     * @throws \Exception
+     */
+    static function send($address, string $cmd, ?array $data = null, array $callableMap = [], array $context = []): void
     {
         $asyncTcpConnection = new AsyncTcpConnection($address, $context);
+        foreach ($callableMap as $key => $callable) {
+            $asyncTcpConnection->$key = $callable;
+        }
         if ($data) {
             $data['data'] = $data;
         }

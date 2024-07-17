@@ -59,13 +59,14 @@ class DisReqCenter extends Worker
             $connection->close();
             return;
         } elseif ($cmd == 'ping') {
-            $this->lastPingTime = time();
-            /* $data               = [
-                 'workerId'     => $this->workerId,
-                 'listen'       => Config::getInstance()->get('distribution.listen'),
-                 'lastPingTime' => $this->lastPingTime,
-             ];*/
-//            Util::send($this->master->getSocketName(), 'pong', $data);
+            $data = [
+                'workerId' => $this->workerId,
+                'listen'   => Config::getInstance()->get('distribution.listen'),
+            ];
+            $connection->send(json_encode([
+                'cmd'  => 'pong',
+                'data' => $data
+            ]));
             return;
         }
         $connection->send(json_encode(['cmd' => 'fail', 'data' => 'do nothing']));

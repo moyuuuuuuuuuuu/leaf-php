@@ -71,16 +71,17 @@ class LeafWorker extends Worker
 
     public function onMessage(TcpConnection $connection, $data)
     {
-        $connection->close();
         list($cmd, $data) = Util::parse($data);
         if ($cmd == 'ping') {
-            $this->lastPingTime = time();
-            /* $data               = [
-                 'workerId' => $this->workerId,
-                 'listen'   => $this->config['listen'],
-                 'w'        => static::class
-             ];
-             Util::send($this->master->getSocketName(), 'pong', $data);*/
+            $data = [
+                'workerId' => $this->workerId,
+                'listen'   => $this->config['listen'],
+            ];
+            $connection->send(json_encode([
+                'cmd'  => 'pong',
+                'data' => $data
+            ]));
+//            Util::send($this->master->getSocketName(), 'pong', $data);
         } else if ($cmd == 'updateRange') {
             $this->currentId = $data['min'];
             $this->config    = array_merge($this->config, $data);

@@ -67,7 +67,15 @@ class LeafMaster extends Worker
                     $this->runDisReqCenter(Config::getInstance()->get('distribution'));
                     return;
                 }
-                Util::send($worker->getSocketName(), 'ping', []);
+                Util::send($worker->getSocketName(), 'ping', [], [
+                    'onMessage' => function ($connection, $data) use ($worker) {
+                        $connection->close();
+                        list($cmd, $data) = Util::parse($data);
+                        if ($cmd == 'pong') {
+                            $worker->lastPingTime = time();
+                        }
+                    }
+                ]);
             });
         } elseif ($cmd == 'started') {
             //TODO:通过redis获取最大的号 然后下发给各个桶
@@ -88,7 +96,15 @@ class LeafMaster extends Worker
                     return;
                 }
 
-                Util::send($worker->getSocketName(), 'ping', []);
+                Util::send($worker->getSocketName(), 'ping', [], [
+                    'onMessage' => function ($connection, $data) use ($worker) {
+                        $connection->close();
+                        list($cmd, $data) = Util::parse($data);
+                        if ($cmd == 'pong') {
+                            $worker->lastPingTime = time();
+                        }
+                    }
+                ]);
             });
         } else if ($cmd == 'numberOff') {
             $this->maxNumber = max($this->maxNumber, $data['number']);
