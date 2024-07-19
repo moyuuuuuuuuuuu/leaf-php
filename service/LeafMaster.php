@@ -31,6 +31,11 @@ class LeafMaster extends Worker
 
     protected $redis = null;
 
+    public function setRedis($redis)
+    {
+        $this->redis = $redis;
+    }
+
     /**
      * @return LeafWorker[]
      */
@@ -45,12 +50,18 @@ class LeafMaster extends Worker
      */
     public function onWorkerStart(Worker $worker)
     {
+        $this->maxNumber  = $this->redis->get('leaf:maxNumber') ?? 0;
+        $currentMaxNumber = $this->maxNumber;
         //创建leafWorker
         foreach (Config::getInstance()->get('worker') as $key => $config) {
+            if ($currentMaxNumber != 0) {
+                $config['min']    = $this->getNextMin($currentMaxNumber);
+                $config['max']    = $config['min'] + Config::getInstance()->get('step') - 1;
+                $currentMaxNumber = $config['min'] + Config::getInstance()->get('step');
+            }
             $this->runLeafWorker($worker, $config, $key);
         }
         $this->runDisReqCenter(Config::getInstance()->get('distribution'));
-        $this->redis = Redis::connection();
     }
 
     public function onMessage($connection, $data)
