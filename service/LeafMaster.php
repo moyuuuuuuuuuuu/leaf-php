@@ -2,7 +2,7 @@
 
 namespace service;
 
-use util\{Config, Util};
+use util\{Config, Storage, Util};
 use Exception;
 use support\Redis;
 use Webman\Exception\NotFoundException;
@@ -26,14 +26,14 @@ class LeafMaster extends Worker
      */
     protected $distributionNode;
     /**
-     * @var Redis
+     * @var Storage
      */
 
-    protected $redis = null;
+    protected $storage = null;
 
-    public function setRedis($redis)
+    public function setStorage($redis)
     {
-        $this->redis = $redis;
+        $this->storage = $redis;
     }
 
     /**
@@ -50,16 +50,17 @@ class LeafMaster extends Worker
      */
     public function onWorkerStart(Worker $worker)
     {
-        $this->maxNumber  = $this->redis->get('leaf:maxNumber') ?? 0;
+        $this->maxNumber  = $this->storage->get() ?? 0;
         $currentMaxNumber = $this->maxNumber;
         //创建leafWorker
+        $bucketNumber = count(Config::getInstance()->get('worker'));
         foreach (Config::getInstance()->get('worker') as $key => $config) {
             if ($currentMaxNumber != 0) {
-                $config['min']    = $this->getNextMin($currentMaxNumber);
+                $config['min']    = $this->getNextMin($currentMaxNumber, $bucketNumber);
                 $config['max']    = $config['min'] + Config::getInstance()->get('step') - 1;
                 $currentMaxNumber = $config['min'] + Config::getInstance()->get('step');
             }
-            $this->runLeafWorker($worker, $config, $key);
+            $this->runLeafWorker($worker, $config);
         }
         $this->runDisReqCenter(Config::getInstance()->get('distribution'));
     }
@@ -89,7 +90,6 @@ class LeafMaster extends Worker
                 ]);
             });
         } elseif ($cmd == 'started') {
-            //TODO:通过redis获取最大的号 然后下发给各个桶
             $timerId = Timer::add(10, function () use ($data, &$timerId) {
                 $worker = $this->getWorker($data['workerId']);
                 if (!$worker) {
@@ -119,7 +119,7 @@ class LeafMaster extends Worker
             });
         } else if ($cmd == 'numberOff') {
             $this->maxNumber = max($this->maxNumber, $data['number']);
-            $this->redis->set('leaf:maxNumber', $this->maxNumber);
+            $this->storage->set($this->maxNumber);
         } elseif ($cmd == 'updateRange') {
             Util::send($this->getWorker($data['workerId'])->getSocketName(), 'updateRange', [
                 'min' => $nextMin = $this->getNextMin(),
@@ -133,13 +133,13 @@ class LeafMaster extends Worker
         $worker->reload();
     }
 
-    protected function getNextMin($currentMaxNumber = null)
+    protected function getNextMin($currentMaxNumber = null, $bucketNumber = 0): int
     {
         $i                 = $currentMaxNumber ?? $this->maxNumber;
-        $bucketSpaceNumber = count($this->workerNodeList) - 1;
+        $bucketSpaceNumber = ($bucketNumber <= 0 ? count($this->workerNodeList) : $bucketNumber) - 1;
         $bucketSpaceNumber = $bucketSpaceNumber > 0 ? $bucketSpaceNumber : 1;
         $bucketStep        = Config::getInstance()->get('step');
-        return $i + $bucketStep * $bucketSpaceNumber + 1;
+        return bcadd(bcmul($bucketStep, $bucketSpaceNumber), bcadd($i, 1));
     }
 
     /**

@@ -3,7 +3,10 @@
 return [
     'step'         => 10,
     'timeOut'      => 50,
-    'fill'         => false,
+    'storage'      => [
+        'file'    => runtime_path() . '/leaf',
+        'encrypt' => \util\Storage::ENCRYPT_BASE,
+    ],
     'master'       => [
         'currentId' => 0,
         'listen'    => '127.0.0.1:9001',
@@ -21,11 +24,11 @@ return [
             'max'    => 10,
             'step'   => 1,
         ],
-        /*[
+        [
             'listen' => '127.0.0.1:9003',
             'min'    => 1001,
             'max'    => 2000,
             'step'   => 1,
-        ],*/
+        ],
     ],
 ];

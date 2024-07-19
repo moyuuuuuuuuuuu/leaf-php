@@ -6,6 +6,7 @@ use Predis\Client;
 use service\LeafMaster;
 use support\Redis;
 use util\Config;
+use util\Storage;
 use Webman\Exception\No;
 use Workerman\Timer;
 use Workerman\Worker;
@@ -30,23 +31,12 @@ class LeafMasterManage
 
     public function onWorkerStart(Worker $worker)
     {
-        if (function_exists('event_base_new')) {
-            Worker::$globalEvent = new Epoll();
-        }
         $this->master                 = new LeafMaster("text://{$this->config->get('master.listen')}");
         $this->master->onMessage      = [$this->master, 'onMessage'];
         $this->master->onWorkerStart  = [$this->master, 'onWorkerStart'];
         $this->master->onWorkerReload = [$this->master, 'onWorkerReload'];
         $this->master->count          = 1;
-        $this->master->setRedis($this->redis);
+        $this->master->setStorage(new Storage(...array_values($this->config->get('storage'))));
         $this->master->run();
-        Timer::add(5, function () {
-            // 检查 Redis 连接
-            try {
-                $this->redis->ping();
-            } catch (\Exception $e) {
-                $this->redis = new Client(array_merge(config('redis.default'), ['scheme' => 'tcp']));
-            }
-        });
     }
 }

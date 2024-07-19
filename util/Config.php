@@ -5,7 +5,14 @@ namespace util;
 class Config implements \ArrayAccess
 {
 
-    protected        $config = [];
+    /**
+     * @var array
+     */
+    protected $config = [];
+
+    /**
+     * @var Config
+     */
     protected static $instance;
 
     private function __construct()
@@ -20,22 +27,22 @@ class Config implements \ArrayAccess
         return self::$instance;
     }
 
-    public function load(array $config = [])
+    public function load(array $config = []): void
     {
         $this->config = $config;
     }
 
-    public function get($offset)
+    public function get($offset): array|string|null
     {
         return $this->offsetGet($offset);
     }
 
-    public function set($offset, $value)
+    public function set($offset, $value): void
     {
         $this->offsetSet($offset, $value);
     }
 
-    public function has($offset)
+    public function has($offset): bool
     {
         return $this->offsetExists($offset);
     }
