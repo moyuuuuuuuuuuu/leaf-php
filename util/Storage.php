@@ -42,7 +42,6 @@ class Storage
 
     public function set($data)
     {
-        var_dump($data);
         if ($this->encrypt) {
             $data = $this->encrypt($data);
         }

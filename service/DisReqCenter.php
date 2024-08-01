@@ -9,6 +9,7 @@ use Workerman\Worker;
 class DisReqCenter extends Worker
 {
 
+
     public    $lastPingTime;
     protected $master;
 

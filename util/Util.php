@@ -44,4 +44,22 @@ class Util
         $data = $data['data'] ?? [];
         return [$cmd, $data];
     }
+
+    static function get()
+    {
+        $disReqHost = config('leaf.distribution.listen');
+        $stream     = stream_socket_client($disReqHost, $errorno, $errorstr, 1, STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT);
+        $data       = ['cmd' => 'offer', 'data' => ['fill' => false]];
+        fwrite($stream, json_encode($data) . "\n");
+        // 准备读取服务器响应
+        $response = '';
+        while (!feof($stream)) {
+            $response .= fread($stream, 1024);
+            if (strpos($response, "\n") !== false) {
+                break;
+            }
+        }
+        fclose($stream);
+        return $response;
+    }
 }

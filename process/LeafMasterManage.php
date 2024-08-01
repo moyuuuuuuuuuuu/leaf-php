@@ -4,11 +4,8 @@ namespace process;
 
 use Predis\Client;
 use service\LeafMaster;
-use support\Redis;
 use util\Config;
 use util\Storage;
-use Webman\Exception\No;
-use Workerman\Timer;
 use Workerman\Worker;
 
 class LeafMasterManage
@@ -31,6 +28,7 @@ class LeafMasterManage
 
     public function onWorkerStart(Worker $worker)
     {
+
         $this->master                 = new LeafMaster("text://{$this->config->get('master.listen')}");
         $this->master->onMessage      = [$this->master, 'onMessage'];
         $this->master->onWorkerStart  = [$this->master, 'onWorkerStart'];

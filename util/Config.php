@@ -41,7 +41,10 @@ class Config implements \ArrayAccess
     {
         $this->offsetSet($offset, $value);
     }
-
+    public function unset($offset): void
+    {
+        $this->offsetUnset($offset);
+    }
     public function has($offset): bool
     {
         return $this->offsetExists($offset);

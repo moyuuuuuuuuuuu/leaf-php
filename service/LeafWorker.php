@@ -81,7 +81,6 @@ class LeafWorker extends Worker
                 'cmd'  => 'pong',
                 'data' => $data
             ]));
-//            Util::send($this->master->getSocketName(), 'pong', $data);
         } else if ($cmd == 'updateRange') {
             $this->currentId = $data['min'];
             $this->config    = array_merge($this->config, $data);
