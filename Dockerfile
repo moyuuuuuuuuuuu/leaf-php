@@ -20,7 +20,7 @@ COPY . .
 RUN composer install --no-dev --optimize-autoloader
 
 # 暴露 Webman 默认端口
-EXPOSE 8787
+EXPOSE 80
 
 # 启动 Webman
 CMD ["php", "start.php", "start", "-d" ]
