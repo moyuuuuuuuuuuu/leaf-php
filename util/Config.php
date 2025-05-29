@@ -41,10 +41,12 @@ class Config implements \ArrayAccess
     {
         $this->offsetSet($offset, $value);
     }
+
     public function unset($offset): void
     {
         $this->offsetUnset($offset);
     }
+
     public function has($offset): bool
     {
         return $this->offsetExists($offset);
@@ -53,19 +55,19 @@ class Config implements \ArrayAccess
     /**
      * @inheritDoc
      */
-    public function offsetExists($offset)
+    public function offsetExists($offset): bool
     {
         if (strstr($offset, '.')) {
             list($first, $second) = explode('.', $offset);
-            return isset($this->config[$first][$second]);
+            return (bool)isset($this->config[$first][$second]);
         }
-        return isset($this->config[$offset]);
+        return (bool)isset($this->config[$offset]);
     }
 
     /**
      * @inheritDoc
      */
-    public function offsetGet($offset)
+    public function offsetGet($offset): mixed
     {
         if (!$this->offsetExists($offset)) {
             return null;
@@ -80,7 +82,7 @@ class Config implements \ArrayAccess
     /**
      * @inheritDoc
      */
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value): void
     {
         if (strstr($offset, '.')) {
             list($first, $second) = explode('.', $offset);
@@ -93,7 +95,7 @@ class Config implements \ArrayAccess
     /**
      * @inheritDoc
      */
-    public function offsetUnset($offset)
+    public function offsetUnset($offset): void
     {
         if (strstr($offset, '.')) {
             list($first, $second) = explode('.', $offset);
