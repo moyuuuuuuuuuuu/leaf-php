@@ -13,8 +13,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t webman-app .
+          docker build -t leaf-php .
           
       - name: Run tests in container
         run: |
-          docker run -d -p 80:80 webman-app
+          docker run -d -p 80:8787 leaf-php
