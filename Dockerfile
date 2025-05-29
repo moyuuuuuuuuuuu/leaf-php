@@ -23,4 +23,4 @@ RUN composer install --no-dev --optimize-autoloader
 EXPOSE 8787
 
 # 启动 Webman
-CMD ["php", "start.php", "start", "-d"]
+CMD ["php", "start.php", "start", "-d" ]
