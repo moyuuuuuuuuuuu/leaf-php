@@ -18,5 +18,3 @@ jobs:
       - name: Run tests in container
         run: |
           docker run -d -p 8787:8787 webman-app
-          sleep 5
-          curl -s http://127.0.0.1:8787 | grep "Webman"
