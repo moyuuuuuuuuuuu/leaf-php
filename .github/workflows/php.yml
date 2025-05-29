@@ -17,4 +17,4 @@ jobs:
           
       - name: Run tests in container
         run: |
-          docker run -d -p 8787:8787 webman-app
+          docker run -d -p 80:80 webman-app
