@@ -72,7 +72,9 @@ class LeafMaster extends Worker
     {
         $connection->close();
         list($cmd, $data) = Util::parse($data);
-        call_user_func([$this, 'event' . ucfirst($cmd)], $data);
+        if ($cmd) {
+            call_user_func([$this, 'event' . ucfirst($cmd)], $data);
+        }
     }
 
     public function onWorkerReload(self $worker)
