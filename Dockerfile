@@ -7,10 +7,6 @@ RUN apt-get update && apt-get install -y \
     unzip \
     && docker-php-ext-install pcntl zip
 
-# 安装 Swoole 扩展
-RUN pecl install swoole \
-    && docker-php-ext-enable swoole
-
 # 安装 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
